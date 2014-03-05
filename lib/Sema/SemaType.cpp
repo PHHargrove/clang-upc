@@ -1663,6 +1663,27 @@ QualType Sema::BuildArrayType(QualType T, ArrayType::ArraySizeModifier ASM,
     return QualType();
   }
 
+  // UPC 1.2 6.5.2.1p2
+  // When a UPC program is translated in the dynamic THREADS environment
+  // and an array with shared-qualified elements is declared with
+  // definite blocksize, the THREADS expression shall occur exactly
+  // once in one dimension of the array declarator (including through
+  // typedefs).
+  if (ArraySize && T->isArrayType() && T.getQualifiers().hasShared()) {
+    llvm::APSInt DummyVal(Context.getTypeSize(Context.getSizeType()));
+    if (isArraySizeTHREAD(*this, ArraySize, DummyVal)) {
+      // Must traverse type because isUPCThreadArrayType() doesn't do so
+      QualType CurType = T.getCanonicalType();
+      while (const ArrayType * AT = dyn_cast<ArrayType>(CurType.getTypePtr())) {
+        if (AT->isUPCThreadArrayType()) {
+          Diag(Loc, diag::err_upc_dynamic_threads_requires_threads);
+          return QualType();
+        }
+        CurType = AT->getElementType();
+      }
+    }
+  }
+
   // Do placeholder conversions on the array size expression.
   if (ArraySize && ArraySize->hasPlaceholderType()) {
     ExprResult Result = CheckPlaceholderExpr(ArraySize);
